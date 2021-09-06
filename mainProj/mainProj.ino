@@ -1,10 +1,28 @@
 // Required Libraries
-
+#include <Adafruit_ST7735.h> 
 #include <Adafruit_Fingerprint.h>
 #include <Adafruit_GFX.h>       
-#include <Adafruit_ST7735.h> 
 #include <SPI.h>
 #include <SoftwareSerial.h>
+
+
+//Custom font
+//#include <Fonts/FreeSans9pt7b.h>
+//#include <Fonts/Oswald/regular/OswaldRegular7pt7b.h>
+#include <Fonts/Oswald/regular/OswaldRegular12pt7b.h>
+// Libraries for SD card
+#include <SD.h>
+// Libraries to get time from NTP Server
+#include <ESP8266WiFi.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+String formattedDate, dayStamp, ID,dateStamp,fullname,timeStamp,dataMessage;
+#define SD_CS  15
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP,"pool.ntp.org");
+// Network connections
+const char *ssid     = "LAB WLAN";
+const char *password = "qwertyuiop";
 // color definitions
 const uint16_t  Black        = 0x0000;
 const uint16_t  Blue         = 0x001F;
@@ -16,91 +34,112 @@ const uint16_t  Yellow       = 0xFFE0;
 const uint16_t  White        = 0xFFFF;
 
 
-//Custom font
-//#include <Fonts/FreeSans9pt7b.h>
-
-//#include <Fonts/Oswald/regular/OswaldRegular7pt7b.h>
-#include <Fonts/Oswald/regular/OswaldRegular12pt7b.h>
 uint8_t id;
-int userID = 0;
+uint8_t userID;
 
 //ESP8266 Serial
 SoftwareSerial mySerial;
 
-//mySerial.begin(BAUD_RATE, SWSERIAL_8N1, D4, D6, false, 95, 11);/
 
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
-// Program Setup
 
-//finger.begin(BAUD_RATE);
-
-#define TX_PIN 2
-#define RX_PIN 12
-
-
-
+// Display pin configuration
+#define TFT_CS         4
+#define TFT_RST        16                                            
+#define TFT_DC         5
+#define TFT_MOSI       13
+#define TFT_SCLK       14
 
 
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST);
 
-//Macro definitions
-//#define mySerial Serial1/
-//Initialize fingerprint sensor
-//Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);/
-//Initialize display module
-  #define TFT_CS        4 //D2
-  #define TFT_RST        16// RST // Or set to -1 and connect to Arduino RESET pin
-  #define TFT_DC         5 // D1
-//  #define TFT_MOSI 13 //D7 //MOSI/
-//  #define TFT_SCLK 21/
+#define  TX_PIN   2
+#define  RX_PIN   0
 
-Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
+
+
+
+void writeFile(const char * path, const char * message) {
+  Serial.printf("Writing file: %s\n", path);
+
+  File file = SD.open(path, FILE_WRITE);
+  if(file) {
+    Serial.println("File logged");
+    file.println(message);
+  }
+  else {
+    Serial.println("Write failed");
+  }
+  file.close();
+}
+
+
+
 
 void setup()
 {
+  Serial.begin(9600);
   mySerial.begin(57600, SWSERIAL_8N1, TX_PIN, RX_PIN, false, 95, 11);
   finger.begin(57600);
+    
 //  Setup display
   tft.initR(INITR_GREENTAB);
   tft.fillScreen(Blue);
   tft.setFont(&OswaldRegular12pt7b);
-    tft.setTextSize(1);
-    tft.setTextColor(White);
-    tft.setCursor(15,20);
-    tft.println("Project by");
-    tft.println("Nweke Chisom");
-    tft.println("      And");
-    tft.println("Ezeala Ogechi"); 
-    delay(500);
-  Serial.begin(9600);
+  tft.setTextSize(1);
+  tft.setTextColor(White);
+  tft.setCursor(15,20);
+  tft.println("Project by");
+  tft.println("Nweke Chisom");
+  tft.println("       And");
+  tft.println(" Ezeala Ogechi"); 
+  delay(500);
+  
+   // Connect to Wi-Fi
+    Serial.print("Connecting to ");
+    Serial.println(ssid);
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
+    }
+    
+    timeClient.begin();
+  // Set offset time in seconds to adjust for your timezone, for example:
+  // GMT +1 = 3600
+  // GMT +8 = 28800
+  // GMT -1 = -3600
+  // GMT 0 = 0
+  timeClient.setTimeOffset(3600);
+  
+Serial.println("Initializing SD card...");
+  if (!SD.begin(SD_CS)) {
+    Serial.println("ERROR - SD card initialization failed!");
+    return;    // init failed
+  }
 
 
-  // set the data rate for the sensor serial port
-  finger.begin(57600);
-  delay(5);
-  finger.getTemplateCount();
-  tft.fillScreen(Blue);
 
-//  if (finger.templateCount == 0) {
-//    tft.setCursor(10,15);
-//    tft.print(finger.templateCount);
-//    tft.println("Device doesn't contain any fingerprint data.");
-//    
-//    tft.println("Please enroll a user");
-//  }
-//  else {
-//    tft.println("Initializing Device");
-//      tft.print("Sensor contains "); 
-//      tft.print(finger.templateCount); 
-//      Serial.print(finger.templateCount);
-//      tft.println(" users");
-//      delay(3000);
-//      tft.fillScreen(White);
-//  }
+  // Create a file on the SD card and write the data labels
+  File attendance = SD.open("/attendance.csv");
+  if(!attendance) {
+    Serial.println("File doens't exist");
+    Serial.println("Creating file...");
+    writeFile( "/attendance.csv", " ID, Fullname, Date, Time \r\n");
+  }
+  else {
+    Serial.println("File already exists");  
+  }
+  attendance.close();
 }
+  
 
 void loop()                     // run over and over again
 {
+  Serial.println("Loop Begins");
+  tft.fillScreen(Black);
+  
   uint8_t p = finger.getImage();
   if (p == FINGERPRINT_OK){  // Fingerprint is placed on device
     tft.setFont(&OswaldRegular12pt7b);
@@ -120,7 +159,7 @@ void loop()                     // run over and over again
     
   }
   
-  delay(1000);            //don't ned to run this at full speed.
+
 }
 
 
@@ -130,9 +169,16 @@ void getUser(void){
     case 1:
     tft.setCursor(10, 40);
     tft.fillScreen(Blue);
-    tft.println("User One");
+    fullname = "User One";
+    tft.println(fullname);
     tft.println("Confidence: ");
     tft.println(finger.confidence);
+    ID = userID;
+    dateStamp = fetchDate();
+    timeStamp = fetchTime();
+    
+    dataMessage = String(ID) + "," + String(fullname) + "," + String(dateStamp) + "," + String(timeStamp) + "\r\n"; 
+    writeFile( "/attendance.csv", dataMessage.c_str());
      delay(3000);
     break;
     case 2:
@@ -274,4 +320,40 @@ int getFingerprintIDez() {
   Serial.print("Found ID #"); Serial.print(finger.fingerID);
   Serial.print(" with confidence of "); Serial.println(finger.confidence);
   return finger.fingerID;
+}
+
+
+
+
+void logData() {
+  String dataMessage = String(ID) + "," + String(fullname) + "," + String(dateStamp) + "," + String(timeStamp) + "\r\n";               
+  Serial.print("Save data: ");
+  Serial.println(dataMessage);
+  writeFile( "/attendance.csv", dataMessage.c_str());
+}
+
+
+
+
+  String fetchTime() {
+  while(!timeClient.update()) {
+    timeClient.forceUpdate();
+  }
+
+  String formattedTime = timeClient.getFormattedTime();
+  return formattedTime;
+}
+
+String fetchDate() {
+  while(!timeClient.update()) {
+    timeClient.forceUpdate();
+  }
+  formattedDate = timeClient.getFormattedDate();
+  Serial.println(formattedDate);
+
+  // Extract date
+  int splitT = formattedDate.indexOf("T");
+  String dateStamp = formattedDate.substring(0, splitT);
+  Serial.println(dayStamp);
+  return dateStamp;
 }
